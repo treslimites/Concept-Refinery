@@ -1,8 +1,11 @@
----
+# Real Isolation on macOS: A General-Purpose Sandbox Model
 
-# Real Isolation on macOS: What Actually Works
-
-You've mapped out the problem correctly. Here's the honest hierarchy of what each layer buys you, and where it stops.
+> **What this is:** A controlled environment with limited blast radius.
+> **What this isn't:** A formally secure system.
+>
+> The goal is to make safe behavior the path of least resistance.
+>
+> **One operational rule:** Run code only where you're comfortable deleting everything it can touch.
 
 ---
 
@@ -10,107 +13,94 @@ You've mapped out the problem correctly. Here's the honest hierarchy of what eac
 
 | Layer | What it actually protects | What it does NOT protect | How you use it |
 |-------|--------------------------|--------------------------|----------------|
-| **Sandbox dir** | Organization, recoverability | System, network, other files | `cd ~/llm-sandbox` |
+| **Sandbox dir** | Organization, recoverability | System, network, other files | `cd ~/sandbox` |
 | **venv** | Dependency pollution | System, network, other files | `python3 -m venv venv` |
-| **Separate user (SSH)** | Your personal files, keychain, browser data | System-wide installs (`brew`), network, kernel | `ssh llm-test@localhost` |
-| **VM (UTM/Parallels)** | System changes, filesystem, processes | Nothing (if you give it network) | Boot VM, do everything inside |
+| **Separate user (SSH)** | Your personal files, keychain, browser data | System-wide installs (`brew`), network, kernel | `ssh sandbox@localhost` |
+| **VM (UTM/Parallels)** | System changes, filesystem, processes | Host via hypervisor escape or integration features | Boot VM, do everything inside |
 | **Air-gapped VM** | System + network | Physical access | VM with networking disabled |
 
 **The rule:** Each layer you add costs friction. Don't climb higher than the risk justifies.
 
 ---
 
-## Your Specific Questions
+## Core Principles
 
-### 1. Can you use the second user's sandbox from your main account?
-
-**No — and you shouldn't try.**
-
-A macOS user is a hard boundary. If you `cd /Users/llm-test` from your main account and run stuff there, you've bypassed the isolation. You're still running as *your* user with *your* permissions.
-
-**The correct way:** Enter the boundary, don't reach across it.
+### 1. Create the boundary
 
 ```bash
-# Good — creates a new session boundary
-ssh llm-test@localhost
-
-# Bad — changes identity inside the same session
-sudo -u llm-test bash
-
-# Worse — bypasses isolation entirely
-cd /Users/llm-test
+mkdir -p ~/sandbox
+cd ~/sandbox
 ```
 
-SSH creates a *new session boundary* with correct `$HOME`, `$PATH`, and no accidental inheritance from your main session. `sudo -u` changes identity inside the same session — environment, TTY, and sometimes `HOME` assumptions leak through.
+**Rule:** This is where experiments live. Nowhere else.
 
-> This is not about networking — it's about creating a clean login session with a separate user context.
+> This directory is the real sandbox — not Docker, not a VM. The boundary is the discipline.
+
+### 2. Stateless by default
+
+**Don't reuse environments.** The path of least resistance should be *fresh*, not *maintained*.
+
+```bash
+cd ~/sandbox
+EXP_DIR=exp-$(date +%s)
+mkdir "$EXP_DIR"
+cd "$EXP_DIR"
+python3 -m venv venv
+source venv/bin/activate
+```
+
+Install what you need, run, then delete:
+
+```bash
+# when done
+deactivate
+cd ~/sandbox
+rm -rf "$EXP_DIR"
+```
+
+**Key habits:**
+- If you wouldn't recreate it from scratch, you shouldn't trust it
+- Never leave credentials inside (no `.env` files, no tokens in the venv)
+- Most experiments should end with deletion. Persistence is the exception, not the default.
+
+### 3. Working directory discipline
+
+Before running anything:
+
+```bash
+pwd
+```
+
+If it's not inside `~/sandbox`, stop.
+
+**Optional helper:**
+
+```bash
+alias sandbox="cd ~/sandbox"
+```
+
+### 4. The "new experiment" ritual
+
+```bash
+cd ~/sandbox
+EXP_DIR=exp-$(date +%s)
+mkdir "$EXP_DIR"
+cd "$EXP_DIR"
+python3 -m venv venv
+source venv/bin/activate
+```
+
+Now install deps, run, delete when done.
 
 ---
 
-### 2. Can you disable Wi-Fi per user on macOS?
-
-**No — networking is system-wide.**
-
-What you *can* do:
-
-| Approach | How | Tradeoff |
-|----------|-----|----------|
-| **Manual toggle** | `networksetup -setairportpower en0 off` | Simple, but global |
-| **Discipline** | "This account = no network unless needed" | Free, requires habit |
-| **Per-process firewall** | LuLu or Little Snitch | Best practical control, some friction |
-| **VM without network** | Disable networking in VM settings | Strongest, but you're in a VM |
-
-**Recommendation:** Pair SSH sandbox + LuLu. First time a process requests network access, **deny by default and observe what breaks.** This turns the firewall into a learning tool instead of a "click allow" reflex.
-
----
-
-### 3. Homebrew is still global — does this mean VM is the answer?
-
-**Yes, if you want to solve the `brew install` problem.**
-
-Here's the clean mental model:
-
-| Where you run `brew install` | Effect |
-|------------------------------|--------|
-| Main user | Global system change |
-| `llm-test` via SSH | **Still global system change** |
-| Inside VM | **Contained to VM only** |
-
-`/opt/homebrew` is shared across all users. A separate user doesn't fix this.
-
-**The deeper risk:** Some Homebrew formulas install background services (`brew services`), modify PATH-linked binaries, or pull in unexpected dependencies. Treat them as system-level changes, not just "packages."
-
-**So the rule is:**
-- Use `brew` only for tools you're willing to treat as part of your base system
-- If you're experimenting with unknown packages → do it inside a VM
-- If you want *zero* system contamination → VM is the only answer
-
----
-
-### 4. `sandbox-exec` is deprecated — what's the replacement?
-
-**There is no direct replacement.** Apple killed this space.
-
-Your realistic options:
-
-| Alternative | What it gives you | Best for |
-|-------------|-------------------|----------|
-| **LuLu / Little Snitch** | Per-process network control, visibility | Daily driver, low friction |
-| **Separate user + SSH** | Filesystem isolation from your personal data | Running untrusted code you still want to use |
-| **VM (UTM)** | Full system containment | Code you fundamentally don't trust |
-| **Air-gapped VM** | System + network containment | Maximum paranoia |
-
-**Don't chase `sandbox-exec` replacements.** The ecosystem moved on. Use the layers above instead.
-
----
-
-## Refined Setup (Incorporating Everything)
+## Setup Guide
 
 ### One-time setup
 
 ```bash
 # 1. Create sandbox user
-# System Settings → Users & Groups → Add user: llm-test (Standard)
+# System Settings → Users & Groups → Add user: sandbox (Standard)
 
 # 2. Enable SSH
 sudo systemsetup -setremotelogin on
@@ -119,31 +109,42 @@ sudo systemsetup -setremotelogin on
 sudo nano /etc/ssh/sshd_config
 
 # Add or ensure these lines:
-AllowUsers llm-test
+AllowUsers sandbox
 PasswordAuthentication no
+PermitRootLogin no
+UsePAM no
 
-# 4. Set up SSH key authentication for llm-test
+# 4. Set up SSH key authentication for sandbox user
 # Then reload SSH:
 sudo launchctl stop com.openssh.sshd
 sudo launchctl start com.openssh.sshd
 
 # 5. Add alias to main user
-echo 'alias llm="ssh llm-test@localhost"' >> ~/.zshrc
+echo 'alias box="ssh sandbox@localhost"' >> ~/.zshrc
 ```
 
-### Inside the SSH session (llm-test)
+### Inside the SSH session (sandbox user)
 
 ```bash
 # Auto-enter sandbox on login
-echo 'cd ~/llm-sandbox' >> ~/.zshrc
+echo 'cd ~/sandbox' >> ~/.zshrc
 
 # Panic reset — actually cleans everything including hidden files
-echo 'alias llm-nuke="find ~/llm-sandbox -mindepth 1 -delete"' >> ~/.zshrc
+# With safety guardrail: only works when inside ~/sandbox or its subdirectories
+cat << 'EOF' >> ~/.zshrc
+function nuke() {
+  if [[ "$PWD" != "$HOME/sandbox"* ]]; then
+    echo "❌ Not in sandbox. Aborting."
+    return 1
+  fi
+  find . -mindepth 1 -delete
+}
+EOF
 
 # Guardrail function
 cat << 'EOF' >> ~/.zshrc
 function safe-run() {
-  if [[ "$PWD" != $HOME/llm-sandbox* ]]; then
+  if [[ "$PWD" != $HOME/sandbox* ]]; then
     echo "❌ Not in sandbox. Aborting."
     return 1
   fi
@@ -156,26 +157,108 @@ EOF
 
 ```bash
 # Normal experimentation
-llm                    # SSH into llm-test
+box                    # SSH into sandbox user
 mkdir exp-$(date +%s) && cd $_
 python3 -m venv venv && source venv/bin/activate
 # ... do work ...
 deactivate && cd .. && rm -rf exp-*
 
 # Panic
-llm-nuke               # back to clean slate
+nuke                   # back to clean slate (only works inside ~/sandbox)
 ```
 
-### Escalation path
+---
+
+## Escalation Path
 
 | Risk level | Action |
 |------------|--------|
 | Trusted tools, known code | Main user, sandbox dir |
-| Unknown repo, agent/tooling | `llm` → SSH into llm-test |
+| Unknown repo, agent/tooling | `box` → SSH into sandbox user |
 | **Anything that modifies the system or runs untrusted code with side effects** | VM |
 | Maximum paranoia | Air-gapped VM |
 
-That "system modification" trigger is the real dividing line people miss. If it touches `brew`, `pip` outside a venv, modifies dotfiles (`~/.zshrc`, `~/.bashrc`, etc.), or changes anything outside the sandbox → VM.
+**The cleanest heuristic:**
+
+> If it can modify anything outside the sandbox → escalate.
+
+If it touches `brew`, system-level `pip install` (outside a venv), global `npm install -g`, modifies dotfiles (`~/.zshrc`, `~/.bashrc`, etc.), or changes anything outside the sandbox → VM.
+
+**Build/install steps are execution:** `make`, `setup.py`, `postinstall` scripts, and Makefiles can execute arbitrary code — treat them as execution, not just installation.
+
+---
+
+## Network Control
+
+macOS networking is system-wide, not per-user.
+
+| Approach | How | Tradeoff |
+|----------|-----|----------|
+| **Manual toggle** | `networksetup -setairportpower en0 off` | Simple, but global |
+| **Discipline** | "This account = no network unless needed" | Free, requires habit |
+| **Per-process firewall** | LuLu or Little Snitch | Best practical control |
+| **VM without network** | Disable networking in VM settings | Strongest |
+
+**Recommendation:** Pair SSH sandbox + LuLu. First time a process requests network access, **deny by default and observe what breaks.** If something breaks, selectively allow only what you understand — never blanket allow a process you don't recognize. This turns the firewall into a learning tool instead of a "click allow" reflex.
+
+**Process visibility matters.** Watch what tries to connect out. Unknown behavior should be observable, not just contained.
+
+---
+
+## Homebrew: The Global Problem
+
+`/opt/homebrew` is shared across all users. A separate user doesn't fix this.
+
+| Where you run `brew install` | Effect |
+|------------------------------|--------|
+| Main user | Global system change |
+| `sandbox` via SSH | **Still global system change** |
+| Inside VM | **Contained to VM only** |
+
+**The deeper risk:** Some Homebrew formulas install background services (`brew services`), modify PATH-linked binaries, or pull in unexpected dependencies. Treat them as system-level changes, not just "packages."
+
+**The same rule applies to:** system-level `pip install` (outside a venv) and global `npm install -g`.
+
+**So the rule is:**
+- Use `brew` only for tools you're willing to treat as part of your base system
+- If you're experimenting with unknown packages → do it inside a VM
+- If you want *zero* system contamination → VM is the only answer
+
+---
+
+## VM Setup & Hardening
+
+When you care about isolation, disable VM integrations:
+
+In UTM / Parallels Desktop, turn off:
+- Shared folders
+- Clipboard sharing
+- Drag & drop
+- Time sync (if configurable)
+
+Otherwise you quietly punch holes through your isolation.
+
+**Docker positioning:**
+
+> Docker ≠ isolation tool. Docker = **workflow + reproducibility layer on top of a VM.**
+
+On macOS, Docker Desktop runs containers inside a managed Linux VM. It has tighter workflow integration and built-in image reproducibility, but don't treat it as a security boundary.
+
+---
+
+## Pre-run Checklist
+
+Before you run anything, answer:
+
+| Question | What to check |
+|----------|---------------|
+| **Filesystem** | Is it confined to `~/sandbox` with no home directory access? |
+| **Network** | Does it need internet? If not, why is it on? |
+| **Execution** | Can it spawn subprocesses or call shell? Am I implicitly allowing that via a framework? |
+| **State** | Can I delete this instantly if it breaks? |
+| **Provenance** | Am I pinning versions, or pulling latest? Could anything auto-update? |
+
+> If any answer is unclear, tighten the boundary or don't run it.
 
 ---
 
@@ -183,9 +266,9 @@ That "system modification" trigger is the real dividing line people miss. If it 
 
 | Thing | Why skip |
 |-------|----------|
-| Visible sandbox marker (`⚠️-sandbox-only`) | You were right — it doesn't help you, and it's not a meaningful security factor |
-| `sudo -u llm-test` | Leaky, inherits environment weirdly, feels like isolation without delivering it |
-| Docker as *primary* isolation | On macOS it runs inside a VM anyway — but Docker is still valuable as a **workflow + reproducibility layer**, not a security boundary |
+| Visible sandbox markers | UX clutter, not a security factor |
+| `sudo -u sandbox` | Leaky, inherits environment weirdly, feels like isolation without delivering it |
+| Docker as *primary* isolation | It's a workflow layer, not a security boundary |
 | Chasing `sandbox-exec` replacements | Dead ecosystem, better alternatives exist |
 
 ---
@@ -198,10 +281,21 @@ Ask: *"Where do I want this to be allowed to fail?"*
 
 | Failure domain | Recovery action |
 |----------------|-----------------|
-| Sandbox dir | `llm-nuke` |
-| User account | Delete `/Users/llm-test` |
+| Sandbox dir | `nuke` |
+| User account | Delete `/Users/sandbox` |
 | VM | Delete VM file |
 
 **If you can delete the boundary, you control the risk.**
 
 ---
+
+## What Success Looks Like
+
+After following this guide, you should:
+
+1. **Never run experimental code outside `~/sandbox`**
+2. **Default to fresh environments** (create, run, delete)
+3. **Know when to switch to a separate user** (unknown repos, agents, tools)
+4. **Recognize when something needs stricter containment** (and reach for VM)
+
+If you do those four things, the model is working.
