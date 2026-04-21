@@ -7,7 +7,7 @@
 >
 > **One operational rule:** Run code only where you're comfortable deleting everything it can touch.
 
----
+---------====--------====---------
 
 ## The Isolation Stack
 
@@ -21,7 +21,7 @@
 
 **The rule:** Each layer you add costs friction. Don't climb higher than the risk justifies.
 
----
+---------====--------====---------
 
 ## Core Principles
 
@@ -34,7 +34,7 @@ cd ~/sandbox
 
 **Rule:** This is where experiments live. Nowhere else.
 
-> This directory is the real sandbox — not Docker, not a VM. The boundary is the discipline.
+> This directory is the real sandbox - not Docker, not a VM. The boundary is the discipline.
 
 ### 2. Stateless by default
 
@@ -92,7 +92,7 @@ source venv/bin/activate
 
 Now install deps, run, delete when done.
 
----
+---------====--------====---------
 
 ## Setup Guide
 
@@ -130,7 +130,7 @@ echo 'alias box="ssh sandbox@localhost"' >> ~/.zshrc
 # Auto-enter sandbox on login
 echo 'cd ~/sandbox' >> ~/.zshrc
 
-# Panic reset — actually cleans everything including hidden files
+# Panic reset - actually cleans everything including hidden files
 # With safety guardrail: only works when inside ~/sandbox or its subdirectories
 cat << 'EOF' >> ~/.zshrc
 function nuke() {
@@ -142,7 +142,7 @@ function nuke() {
 }
 EOF
 
-# Guardrail function — runs command only if inside sandbox
+# Guardrail function - runs command only if inside sandbox
 cat << 'EOF' >> ~/.zshrc
 function safe-run() {
   if [[ "$PWD" != $HOME/sandbox* ]]; then
@@ -168,7 +168,7 @@ deactivate && cd .. && rm -rf exp-*
 nuke                   # back to clean slate (only works inside ~/sandbox)
 ```
 
----
+---------====--------====---------
 
 ## Escalation Path
 
@@ -185,9 +185,9 @@ nuke                   # back to clean slate (only works inside ~/sandbox)
 
 If it touches `brew`, system-level `pip install` (outside a venv), global `npm install -g`, modifies dotfiles (`~/.zshrc`, `~/.bashrc`, etc.), or changes anything outside the sandbox → VM.
 
-**Build/install steps are execution:** `make`, `setup.py`, `postinstall` scripts, and Makefiles can execute arbitrary code — treat them as execution, not just installation.
+**Build/install steps are execution:** `make`, `setup.py`, `postinstall` scripts, and Makefiles can execute arbitrary code - treat them as execution, not just installation.
 
----
+---------====--------====---------
 
 ## Network Control
 
@@ -200,11 +200,11 @@ macOS networking is system-wide, not per-user.
 | **Per-process firewall** | LuLu or Little Snitch | Best practical control |
 | **VM without network** | Disable networking in VM settings | Strongest |
 
-**Recommendation:** Pair SSH sandbox + LuLu. First time a process requests network access, **deny by default and observe what breaks.** If something breaks, selectively allow only what you understand — never blanket allow a process you don't recognize. Some tools will fail noisily without network access — this is expected. Only restore access if you understand why it's needed. This turns the firewall into a learning tool instead of a "click allow" reflex.
+**Recommendation:** Pair SSH sandbox + LuLu. First time a process requests network access, **deny by default and observe what breaks.** If something breaks, selectively allow only what you understand - never blanket allow a process you don't recognize. Some tools will fail noisily without network access - this is expected. Only restore access if you understand why it's needed. This turns the firewall into a learning tool instead of a "click allow" reflex.
 
 **Process visibility matters.** Watch what tries to connect out. Unknown behavior should be observable, not just contained.
 
----
+---------====--------====---------
 
 ## Homebrew: The Global Problem
 
@@ -225,7 +225,7 @@ macOS networking is system-wide, not per-user.
 - If you're experimenting with unknown packages → do it inside a VM
 - If you want *zero* system contamination → VM is the only answer
 
----
+---------====--------====---------
 
 ## VM Setup & Hardening
 
@@ -247,7 +247,7 @@ Otherwise you quietly punch holes through your isolation.
 
 On macOS, Docker Desktop runs containers inside a managed Linux VM. It has tighter workflow integration and built-in image reproducibility, but don't treat it as a security boundary.
 
----
+---------====--------====---------
 
 ## Pre-run Checklist
 
@@ -263,7 +263,7 @@ Before you run anything, answer:
 
 > If any answer is unclear, tighten the boundary or don't run it yet.
 
----
+---------====--------====---------
 
 ## What You Should Skip
 
@@ -274,7 +274,7 @@ Before you run anything, answer:
 | Docker as *primary* isolation | It's a workflow layer, not a security boundary |
 | Chasing `sandbox-exec` replacements | Dead ecosystem, better alternatives exist |
 
----
+---------====--------====---------
 
 ## Final Mental Model
 
@@ -290,7 +290,7 @@ Ask: *"Where do I want this to be allowed to fail?"*
 
 **Control the boundary, control the risk.**
 
----
+---------====--------====---------
 
 ## What Success Looks Like
 
