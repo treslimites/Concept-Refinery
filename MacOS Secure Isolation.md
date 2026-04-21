@@ -115,6 +115,7 @@ PermitRootLogin no
 UsePAM no
 
 # 4. Set up SSH key authentication for sandbox user
+# Generate keys on your main user and copy the public key to the sandbox user (~/.ssh/authorized_keys)
 # Then reload SSH:
 sudo launchctl stop com.openssh.sshd
 sudo launchctl start com.openssh.sshd
@@ -141,7 +142,7 @@ function nuke() {
 }
 EOF
 
-# Guardrail function
+# Guardrail function — runs command only if inside sandbox
 cat << 'EOF' >> ~/.zshrc
 function safe-run() {
   if [[ "$PWD" != $HOME/sandbox* ]]; then
@@ -199,7 +200,7 @@ macOS networking is system-wide, not per-user.
 | **Per-process firewall** | LuLu or Little Snitch | Best practical control |
 | **VM without network** | Disable networking in VM settings | Strongest |
 
-**Recommendation:** Pair SSH sandbox + LuLu. First time a process requests network access, **deny by default and observe what breaks.** If something breaks, selectively allow only what you understand — never blanket allow a process you don't recognize. This turns the firewall into a learning tool instead of a "click allow" reflex.
+**Recommendation:** Pair SSH sandbox + LuLu. First time a process requests network access, **deny by default and observe what breaks.** If something breaks, selectively allow only what you understand — never blanket allow a process you don't recognize. Some tools will fail noisily without network access — this is expected. Only restore access if you understand why it's needed. This turns the firewall into a learning tool instead of a "click allow" reflex.
 
 **Process visibility matters.** Watch what tries to connect out. Unknown behavior should be observable, not just contained.
 
@@ -236,6 +237,8 @@ In UTM / Parallels Desktop, turn off:
 - Drag & drop
 - Time sync (if configurable)
 
+**Also:** Disable shared iCloud / Apple ID login inside the VM. Otherwise you reintroduce personal data into the VM boundary, completely defeating the "separate failure domain" idea.
+
 Otherwise you quietly punch holes through your isolation.
 
 **Docker positioning:**
@@ -258,7 +261,7 @@ Before you run anything, answer:
 | **State** | Can I delete this instantly if it breaks? |
 | **Provenance** | Am I pinning versions, or pulling latest? Could anything auto-update? |
 
-> If any answer is unclear, tighten the boundary or don't run it.
+> If any answer is unclear, tighten the boundary or don't run it yet.
 
 ---
 
@@ -285,7 +288,7 @@ Ask: *"Where do I want this to be allowed to fail?"*
 | User account | Delete `/Users/sandbox` |
 | VM | Delete VM file |
 
-**If you can delete the boundary, you control the risk.**
+**Control the boundary, control the risk.**
 
 ---
 
